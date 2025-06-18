@@ -122,20 +122,47 @@ class ProductboardConnector(PollConnector):
                 metadata=metadata,
             )
 
+    def _fetch_notes(self) -> Generator[dict[str, Any], None, None]:
+        """Fetch notes while handling pagination via ``pageCursor``."""
+        headers = self._build_headers()
+
+        @retry(tries=3, delay=1, backoff=2)
+        def fetch(cursor: str | None) -> dict[str, Any]:
+            url = f"{_PRODUCT_BOARD_BASE_URL}/notes?pageLimit=2000"
+            if cursor:
+                url += f"&pageCursor={cursor}"
+            response = requests.get(url, headers=headers)
+            if not response.ok:
+                raise ProductboardApiError(
+                    "Failed to fetch from productboard - status code:"
+                    f" {response.status_code} - response: {response.text}"
+                )
+            return response.json()
+
+        page_cursor: str | None = None
+        while True:
+            response_json = fetch(page_cursor)
+            for note in response_json["data"]:
+                yield note
+
+            page_cursor = cast(str | None, response_json.get("pageCursor"))
+            if not page_cursor:
+                break
+
     def _get_notes(self) -> Generator[Document, None, None]:
-        """Fetch notes linked to features."""
-        for note in self._fetch_documents(
-            initial_link=f"{_PRODUCT_BOARD_BASE_URL}/notes"
-        ):
+        """Fetch notes, regardless of whether they are linked to features."""
+        for note in self._fetch_notes():
             features = cast(list[dict[str, Any]] | None, note.get("features"))
-            if not features:
-                continue
 
             owner = self._get_owner_email(note)
             experts = [BasicExpertInfo(email=owner)] if owner else None
 
-            feature_names = [f.get("name") for f in features if f.get("name")]
-            feature_ids = [f.get("id") for f in features if f.get("id")]
+            feature_names = [
+                cast(str, f.get("name")) for f in features or [] if f.get("name")
+            ]
+            feature_ids = [
+                cast(str, f.get("id")) for f in features or [] if f.get("id")
+            ]
 
             metadata: dict[str, str | list[str]] = {"entity_type": "note"}
             if feature_ids:
