@@ -71,9 +71,13 @@ class HubSpotConnector(LoadConnector, PollConnector):
             if end is not None and updated_at > end:
                 continue
 
-            title = ticket.properties["subject"]
+            title = ticket.properties.get("subject") or "No Subject"
             link = self.ticket_base_url + ticket.id
-            content_text = ticket.properties["content"]
+            content_text = ticket.properties.get("content", "")
+
+            if not content_text:
+                logger.warning(f"Ticket {ticket.id} has no content. Skipping.")
+                continue
 
             associated_emails: list[str] = []
             associated_notes: list[str] = []
