@@ -123,19 +123,21 @@ class ProductboardConnector(PollConnector):
             )
 
     def _get_notes(self) -> Generator[Document, None, None]:
-        """Fetch notes linked to features."""
+        """Fetch notes, regardless of whether they are linked to features."""
         for note in self._fetch_documents(
             initial_link=f"{_PRODUCT_BOARD_BASE_URL}/notes"
         ):
             features = cast(list[dict[str, Any]] | None, note.get("features"))
-            if not features:
-                continue
 
             owner = self._get_owner_email(note)
             experts = [BasicExpertInfo(email=owner)] if owner else None
 
-            feature_names = [f.get("name") for f in features if f.get("name")]
-            feature_ids = [f.get("id") for f in features if f.get("id")]
+            feature_names = [
+                cast(str, f.get("name")) for f in features or [] if f.get("name")
+            ]
+            feature_ids = [
+                cast(str, f.get("id")) for f in features or [] if f.get("id")
+            ]
 
             metadata: dict[str, str | list[str]] = {"entity_type": "note"}
             if feature_ids:
