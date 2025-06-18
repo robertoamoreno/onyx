@@ -122,11 +122,39 @@ class ProductboardConnector(PollConnector):
                 metadata=metadata,
             )
 
+    def _fetch_notes(self) -> Generator[dict[str, Any], None, None]:
+        """Fetch notes while handling pagination via pageCursor."""
+        headers = self._build_headers()
+
+        @retry(tries=3, delay=1, backoff=2)
+        def fetch(link: str) -> dict[str, Any]:
+            response = requests.get(link, headers=headers)
+            if not response.ok:
+                raise ProductboardApiError(
+                    "Failed to fetch from productboard - status code:"
+                    f" {response.status_code} - response: {response.text}"
+                )
+
+            return response.json()
+
+        next_link: str | None = f"{_PRODUCT_BOARD_BASE_URL}/notes?pageLimit=2000"
+        while next_link:
+            response_json = fetch(next_link)
+            for note in response_json["data"]:
+                yield note
+
+            next_link = response_json.get("links", {}).get("next")
+            if not next_link:
+                page_cursor = response_json.get("pageCursor")
+                if page_cursor:
+                    next_link = (
+                        f"{_PRODUCT_BOARD_BASE_URL}/notes?pageLimit=2000&pageCursor="
+                        f"{page_cursor}"
+                    )
+
     def _get_notes(self) -> Generator[Document, None, None]:
         """Fetch notes, regardless of whether they are linked to features."""
-        for note in self._fetch_documents(
-            initial_link=f"{_PRODUCT_BOARD_BASE_URL}/notes"
-        ):
+        for note in self._fetch_notes():
             features = cast(list[dict[str, Any]] | None, note.get("features"))
 
             owner = self._get_owner_email(note)
